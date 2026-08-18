@@ -1,6 +1,6 @@
 {
   "name": "@elumixor/synced",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Optimistic writes with one queue: local-first records, retries, reconciliation and undo, over any backend",
   "keywords": [
     "optimistic",
