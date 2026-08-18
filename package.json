@@ -1,0 +1,60 @@
+{
+  "name": "@elumixor/synced",
+  "version": "0.1.0",
+  "description": "Optimistic writes with one queue: local-first records, retries, reconciliation and undo, over any backend",
+  "keywords": [
+    "optimistic",
+    "offline",
+    "sync",
+    "local-first",
+    "undo",
+    "reconciliation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/elumixor/synced.git"
+  },
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./protocol": {
+      "types": "./dist/protocol.d.mts",
+      "default": "./dist/protocol.mjs"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.mts",
+      "default": "./dist/client/index.mjs"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.mts",
+      "default": "./dist/server/index.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "unbuild",
+    "lint": "tsc --noEmit && biome check src test",
+    "format": "biome format --write src test",
+    "test": "bun test",
+    "release:patch": "npm version patch -m \"Release v%s\" && git push --tags",
+    "release:minor": "npm version minor -m \"Release v%s\" && git push --tags",
+    "release:major": "npm version major -m \"Release v%s\" && git push --tags"
+  },
+  "peerDependencies": {
+    "zod": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "zod": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
+    "@types/bun": "latest",
+    "typescript": "^5.9.3",
+    "unbuild": "^3.6.1",
+    "zod": "^4.4.3"
+  }
+}

@@ -1,0 +1,54 @@
+name: Node.js CI
+
+on: [push]
+
+permissions:
+  id-token: write # Required for OIDC
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun run build
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun lint
+
+  publish:
+    needs: [build, test, lint]
+    runs-on: ubuntu-latest
+
+    # Run on any tag
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      # A pushed v-tag is an explicit release signal, so publish unconditionally. (The previous
+      # version-check gate reported no change on a shallow tag checkout and silently skipped.)
+      - run: bun install
+
+      - run: bun run build
+
+      - run: npm publish --access public
