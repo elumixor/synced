@@ -45,10 +45,21 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      # A pushed v-tag is an explicit release signal, so publish unconditionally. (The previous
-      # version-check gate reported no change on a shallow tag checkout and silently skipped.)
+      # Trusted publishing (OIDC) needs a newer npm than the one Node ships with.
+      - run: npm install -g npm@latest
+
       - run: bun install
 
       - run: bun run build
 
-      - run: npm publish --access public
+      # A pushed v-tag is an explicit release signal, so publish unconditionally — except when
+      # that version is already on the registry, which a re-run of a green release otherwise
+      # turns into a red one.
+      - name: Publish
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if npm view "@elumixor/synced@$version" version > /dev/null 2>&1; then
+            echo "@elumixor/synced@$version is already published."
+            exit 0
+          fi
+          npm publish --access public
