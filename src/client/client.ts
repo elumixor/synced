@@ -22,6 +22,13 @@ export type Collections<S extends ModelSpecs> = {
   readonly [K in keyof S]: SyncedCollection<RecordOf<S[K]>, ActionsOf<S[K]>>;
 };
 
+/**
+ * A queued write, with whether it has ever left the device. A mutation the server may already
+ * have applied can't be rewritten: its id is spent, and the retry under it would be answered
+ * "already applied" without the new content ever being read. Client-side only — see `#round`.
+ */
+type Queued = Mutation & { sent?: boolean };
+
 /** The collections seen from inside, where one model is much like another. */
 type AnyCollection = SyncedCollection<Identified, ActionMap<Identified>>;
 
@@ -70,7 +77,7 @@ export class SyncedClient<S extends ModelSpecs> {
 
   readonly #collections: Readonly<Record<string, AnyCollection>>;
 
-  #queue: Mutation[] = [];
+  #queue: Queued[] = [];
   readonly #syncing;
   readonly #error;
   readonly #pending;
@@ -88,8 +95,11 @@ export class SyncedClient<S extends ModelSpecs> {
   #retryScheduled = false;
   #hydrated = false;
   #firstSync: Promise<void> | null = null;
-  /** The mutations the round in flight is carrying, which must not be rewritten under it. */
-  #sending: ReadonlySet<string> = new Set();
+  /**
+   * Bumped by `clear`, so an answer to a request made by the account that just signed out is
+   * dropped rather than absorbed into the session that replaced it.
+   */
+  #epoch = 0;
   /** How many `beginStep` calls are open; the outermost one decides what an undo step is. */
   #stepDepth = 0;
   /** Set while a group of writes is being collected into a single undo step. */
@@ -235,19 +245,29 @@ export class SyncedClient<S extends ModelSpecs> {
     this.#queue = [];
     this.#pending.value = 0;
     this.#error.value = null;
+    this.#epoch += 1;
+    this.#firstSync = null;
     this.history.clear();
     for (const name of this.#names) this.#collections[name].clear();
-    await Promise.all(this.#names.map((name) => this.#storage.remove(this.#modelKey(name))));
-    await this.#storage.remove(this.#queueKey);
+    // Everything under this prefix, not just the models configured right now: a model dropped
+    // from the app in an update still has last account's records sitting on the device.
+    const keys = await this.#storage.keys();
+    await Promise.all(keys.filter((key) => key.startsWith(`${this.#prefix}:`)).map((key) => this.#storage.remove(key)));
   }
 
   async #round() {
     this.#syncing.value = true;
+    const epoch = this.#epoch;
     const sending = [...this.#queue];
-    this.#sending = new Set(sending.map((mutation) => mutation.mutationId));
-    const since = Object.fromEntries(this.#names.map((name) => [name, this.#collections[name].since]));
+    // Sent is sent, whatever the answer turns out to be: a reply lost in transit leaves a write
+    // the server has carried out and a client that can't tell. Marked before the request rather
+    // than after, so a write made while this one is out can't fold itself into it either.
+    this.#queue = this.#queue.map((mutation) => (mutation.sent ? mutation : { ...mutation, sent: true }));
     try {
-      const response = await this.options.transport({ since, mutations: sending });
+      const since = Object.fromEntries(this.#names.map((name) => [name, this.#collections[name].since]));
+      const response = await this.options.transport({ since, mutations: sending.map(onTheWire) });
+      // Signed out while this was in flight: these records belong to an account that has gone.
+      if (epoch !== this.#epoch) return;
       this.#accept(response, sending);
       this.#failures = 0;
       this.#error.value = null;
@@ -257,11 +277,11 @@ export class SyncedClient<S extends ModelSpecs> {
         this.#schedule(() => void this.sync(), 0);
       }
     } catch (e) {
+      if (epoch !== this.#epoch) return;
       this.#error.value = e instanceof Error ? e.message : "Couldn't reach the server.";
       this.options.onError?.(e);
       this.#scheduleRetry();
     } finally {
-      this.#sending = new Set();
       this.#syncing.value = false;
     }
   }
@@ -308,16 +328,16 @@ export class SyncedClient<S extends ModelSpecs> {
    * thing. A slider dragged across a screen is one write to send, not two hundred — but only
    * while nothing has gone up: a mutation the server may already have seen keeps its own identity.
    */
-  #queued(intent: Intent): Mutation[] {
+  #queued(intent: Intent): Queued[] {
     const last = this.#queue.at(-1);
     const mergeable =
       intent.kind === "update" &&
       last?.kind === "update" &&
       last.model === intent.model &&
       last.id === intent.id &&
-      !this.#sending.has(last.mutationId);
+      !last.sent;
     if (!mergeable) return [...this.#queue, { ...intent, mutationId: this.#newId() }];
-    const merged: Mutation = { ...last, patch: { ...last.patch, ...intent.patch } };
+    const merged: Queued = { ...last, patch: { ...last.patch, ...intent.patch } };
     return [...this.#queue.slice(0, -1), merged];
   }
 
@@ -375,7 +395,9 @@ export class SyncedClient<S extends ModelSpecs> {
   }
 
   #restoreQueue(raw: string | null) {
-    this.#queue = parse<Mutation[]>(raw) ?? [];
+    // Whatever was on disk was written before the app died, which is exactly when a reply can go
+    // missing — so none of it may be merged into, however it was stored.
+    this.#queue = (parse<Queued[]>(raw) ?? []).map((mutation) => ({ ...mutation, sent: true }));
     this.#pending.value = this.#queue.length;
   }
 
@@ -395,6 +417,11 @@ export class SyncedClient<S extends ModelSpecs> {
 
 export function syncedClient<S extends ModelSpecs>(options: SyncedClientOptions<S>) {
   return new SyncedClient(options);
+}
+
+/** The wire carries the protocol and nothing else — `sent` is this client's own bookkeeping. */
+function onTheWire({ sent: _sent, ...mutation }: Queued): Mutation {
+  return mutation;
 }
 
 /** Storage holds whatever an older build wrote; a shape that no longer parses is just a miss. */

@@ -29,7 +29,14 @@ every time either half moves. Two things follow, and they're the reason this exi
   again on the next frame.
 
 Writes carry an id the client makes up, so a retry after a dropped connection is free — the server
-recognises the id and doesn't send the email, or make the calendar event, twice.
+recognises the id and doesn't send the email, or make the calendar event, twice. That id is spent
+the moment the write leaves the device: a later edit to the same record queues behind it rather
+than being folded into it, because a mutation the server may already have logged would be answered
+"already applied" and the folded-in edit would never be read.
+
+Signing out ends the round trip that was in flight with it. An answer to a request the previous
+account made is dropped rather than absorbed, and the device's copy goes with it — including keys
+written by a model the app no longer configures.
 
 ## Client
 
@@ -115,5 +122,13 @@ rejected — it throws, and the client tries the whole request again with its qu
 
 ## Tests
 
-`bun test` — optimism, rejection, a response landing mid-edit, lost replies, offline bursts,
-restarts, tombstones, undo and redo.
+`bun test` — 100% of lines and functions, enforced (`bunfig.toml`), so an untested branch fails
+the run rather than showing up in a coverage report nobody reads. `bun run test:watch` while
+working; `bun run test:coverage` writes lcov to `coverage/`.
+
+Two files: `test/sync.test.ts` is the behaviour the library promises — optimism, rejection, a
+response landing mid-edit, lost replies, offline bursts, restarts, tombstones, undo and redo.
+`test/edges.test.ts` is the half-happening cases, where being nearly right is worse than failing:
+a reply lost after the server applied the write, a sign-out under a request in flight, an answer
+describing a row older than the one already held, a tombstone arriving late, a client creating a
+row the server manages itself, a store that is down versus a store that says no.

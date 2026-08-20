@@ -203,7 +203,14 @@ export class SyncedCollection<T extends Identified, A = ActionMap<T>> {
 
   /** Takes in what a pull returned. Tombstones are kept: they're what makes a delete travel. */
   absorb(changes: readonly Envelope<T>[], since: number) {
-    for (const envelope of changes) this.#confirmed.set(envelope.id, envelope);
+    for (const envelope of changes) {
+      // A server reading from a replica can answer with a row it wrote before the one already
+      // held. Taking it would undo a change this client has already been told about — including
+      // a delete, which would put the record back on screen.
+      const held = this.#confirmed.get(envelope.id);
+      if (held && held.updatedAt > envelope.updatedAt) continue;
+      this.#confirmed.set(envelope.id, envelope);
+    }
     this.#since = Math.max(this.#since, since);
     this.#ready.value = true;
   }

@@ -100,6 +100,9 @@ export class SyncedModel<Schema extends z.ZodObject = z.ZodObject, T extends Ide
     const { store, schema, actions, writable } = this.options;
     if (mutation.kind === "create") {
       const record = schema.parse({ ...mutation.data, id: mutation.id }) as T;
+      // Checked on the way in as well as on the way over: a client allowed to make a row the
+      // server manages itself has made one nobody — including that client — can ever write to.
+      if (writable && !writable(record)) throw new RejectedError(`This ${this.name} record is read-only.`);
       return store.create(userId, record);
     }
 

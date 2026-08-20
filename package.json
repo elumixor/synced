@@ -36,8 +36,11 @@
   "scripts": {
     "build": "unbuild",
     "lint": "tsc --noEmit && biome check src test",
+    "lint:fix": "biome check --write src test",
     "format": "biome format --write src test",
     "test": "bun test",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage-reporter=text --coverage-reporter=lcov --coverage-dir=coverage",
     "release:patch": "npm version patch -m \"Release v%s\" && git push --tags",
     "release:minor": "npm version minor -m \"Release v%s\" && git push --tags",
     "release:major": "npm version major -m \"Release v%s\" && git push --tags"

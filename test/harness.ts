@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { Envelope, Identified, SyncRequest, SyncResponse } from "../src/protocol";
+import { memoryStorage, model, type SyncedStorage, syncedClient } from "../src/client";
+import type { Envelope, Identified, Intent, SyncRequest, SyncResponse } from "../src/protocol";
 import { action, type MutationLog, RejectedError, type SyncedStore, SyncServer, syncedModel } from "../src/server";
 
 export const noteSchema = z.object({
@@ -139,3 +140,47 @@ export function makeRuntime() {
     delays: () => timers.map((timer) => timer.ms),
   };
 }
+
+/** The model the tests are written against: notes, with one server-owned write. */
+export const notesSpec = model<Note>()({
+  actions: {
+    pin: {
+      optimistic: (_note, payload: { pinned: boolean }) => ({ pinned: payload.pinned }),
+      invert: (note, _payload: { pinned: boolean }): Intent<Note> => ({
+        kind: "update",
+        model: "notes",
+        id: note.id,
+        patch: { pinned: note.pinned },
+      }),
+    },
+  },
+});
+
+export interface Shared {
+  storage?: SyncedStorage;
+  network?: Network;
+  server?: ReturnType<typeof makeServer>;
+  prefix?: string;
+}
+
+/** A client, its server and the wire between them, each replaceable so two clients can share one. */
+export function setup(shared?: Shared) {
+  const made = shared?.server ?? makeServer();
+  const network = shared?.network ?? new Network(made.server);
+  const runtime = makeRuntime();
+  const storage = shared?.storage ?? memoryStorage();
+  const rejections: string[] = [];
+  const client = syncedClient({
+    models: { notes: notesSpec },
+    transport: network.transport,
+    storage,
+    newId: runtime.newId,
+    random: runtime.random,
+    schedule: runtime.schedule,
+    prefix: shared?.prefix ?? "test",
+    onRejected: (rejected) => rejections.push(rejected.reason),
+  });
+  return { ...made, network, runtime, storage, client, rejections, notes: client.models.notes };
+}
+
+export const draft = { title: "Groceries", body: "milk", pinned: false };

@@ -1,47 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { memoryStorage, model, type SyncedStorage, syncedClient } from "../src/client";
-import type { Intent } from "../src/protocol";
-import { makeRuntime, makeServer, Network, type Note, pinCounts } from "./harness";
-
-const notesSpec = model<Note>()({
-  actions: {
-    pin: {
-      optimistic: (_note, payload: { pinned: boolean }) => ({ pinned: payload.pinned }),
-      invert: (note, _payload: { pinned: boolean }): Intent<Note> => ({
-        kind: "update",
-        model: "notes",
-        id: note.id,
-        patch: { pinned: note.pinned },
-      }),
-    },
-  },
-});
-
-function setup(shared?: {
-  storage?: SyncedStorage;
-  network?: Network;
-  server?: ReturnType<typeof makeServer>;
-  prefix?: string;
-}) {
-  const made = shared?.server ?? makeServer();
-  const network = shared?.network ?? new Network(made.server);
-  const runtime = makeRuntime();
-  const storage = shared?.storage ?? memoryStorage();
-  const rejections: string[] = [];
-  const client = syncedClient({
-    models: { notes: notesSpec },
-    transport: network.transport,
-    storage,
-    newId: runtime.newId,
-    random: runtime.random,
-    schedule: runtime.schedule,
-    prefix: shared?.prefix ?? "test",
-    onRejected: (rejected) => rejections.push(rejected.reason),
-  });
-  return { ...made, network, runtime, storage, client, rejections, notes: client.models.notes };
-}
-
-const draft = { title: "Groceries", body: "milk", pinned: false };
+import { memoryStorage } from "../src/client";
+import { draft, makeServer, Network, pinCounts, setup } from "./harness";
 
 beforeEach(() => pinCounts.clear());
 

@@ -1,0 +1,5 @@
+[test]
+coverageThreshold = 1
+coverage = true
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = ["test/harness.ts"]
