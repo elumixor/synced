@@ -208,7 +208,7 @@ export class SyncedCollection<T extends Identified, A = ActionMap<T>> {
       case "action": {
         const spec = this.#actions[intent.name];
         if (!current || !spec?.invert) return null;
-        return spec.invert(current, intent.payload as never, (id) => this.#find(id));
+        return spec.invert(current, intent.payload as never, this.#find.bind(this));
       }
     }
   }
