@@ -7,10 +7,15 @@ import type { Signals } from "./signals";
  * and how to take it back if the user undoes it.
  */
 export interface ActionSpec<T extends Identified, P> {
+  /**
+   * The records the action draws on, when it is more than the one it is sent to: moving many pages is one write,
+   * drawn on every page it moves. `optimistic` is applied to each of them.
+   */
+  targets?(payload: P): readonly string[];
   /** The record as it should look the instant the button is pressed. */
   optimistic?(record: T, payload: P): Partial<T>;
-  /** What undoing this means. Omitted, the action simply isn't undoable. */
-  invert?(record: T, payload: P): Intent<T> | null;
+  /** What undoing this means, `find` reading any record as it is now. Omitted, the action simply isn't undoable. */
+  invert?(record: T, payload: P, find: (id: string) => T | undefined): Intent<T> | null;
 }
 
 export type ActionMap<T extends Identified> = Readonly<Record<string, ActionSpec<T, never>>>;
@@ -39,7 +44,14 @@ export interface ModelSpec<T extends Identified, A = ActionMap<T>> {
 export interface AnyModelSpec {
   compare?: (a: never, b: never) => number;
   readonly actions?: Readonly<
-    Record<string, { optimistic?: (...args: never[]) => object; invert?: (...args: never[]) => Intent | null }>
+    Record<
+      string,
+      {
+        targets?: (...args: never[]) => readonly string[];
+        optimistic?: (...args: never[]) => object;
+        invert?: (...args: never[]) => Intent | null;
+      }
+    >
   >;
   readonly record?: Identified;
 }
@@ -196,7 +208,7 @@ export class SyncedCollection<T extends Identified, A = ActionMap<T>> {
       case "action": {
         const spec = this.#actions[intent.name];
         if (!current || !spec?.invert) return null;
-        return spec.invert(current, intent.payload as never);
+        return spec.invert(current, intent.payload as never, (id) => this.#find(id));
       }
     }
   }
@@ -253,11 +265,15 @@ export class SyncedCollection<T extends Identified, A = ActionMap<T>> {
       const current = records.get(intent.id);
       if (intent.kind === "create") records.set(intent.id, intent.data as T);
       else if (intent.kind === "delete") records.delete(intent.id);
-      else if (!current) continue;
-      else if (intent.kind === "update") records.set(intent.id, { ...current, ...(intent.patch as Partial<T>) });
-      else {
-        const optimistic = this.#actions[intent.name]?.optimistic;
-        if (optimistic) records.set(intent.id, { ...current, ...optimistic(current, intent.payload as never) });
+      else if (intent.kind === "update") {
+        if (current) records.set(intent.id, { ...current, ...(intent.patch as Partial<T>) });
+      } else {
+        const spec = this.#actions[intent.name];
+        if (!spec?.optimistic) continue;
+        for (const id of spec.targets?.(intent.payload as never) ?? [intent.id]) {
+          const target = records.get(id);
+          if (target) records.set(id, { ...target, ...spec.optimistic(target, intent.payload as never) });
+        }
       }
     }
     const list = [...records.values()];

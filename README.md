@@ -97,6 +97,23 @@ model<Event>()({
 });
 ```
 
+One action can draw on many records: `targets` names them, and `optimistic` runs on each. Moving a
+hundred pages is then one write to send and one for the server to apply, not a hundred. `invert`
+gets a `find` to read the others as they are now:
+
+```ts
+model<Page>()({
+  actions: {
+    move: {
+      targets: ({ moves }: { moves: Record<string, { parentId: string }> }) => Object.keys(moves),
+      optimistic: (page, { moves }) => moves[page.id] ?? {},
+      invert: (page, { moves }, find) => ({ kind: "action", model: "pages", id: page.id, name: "move",
+        payload: { moves: Object.fromEntries(Object.keys(moves).map((id) => [id, { parentId: find(id)?.parentId }])) } }),
+    },
+  },
+});
+```
+
 ## Server
 
 A model says what its records look like, where they live, and what can be done to one. "Where they
