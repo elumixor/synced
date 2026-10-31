@@ -106,6 +106,8 @@ export class SyncedClient<S extends ModelSpecs> {
   #step: { forward: Intent[]; inverse: (Intent | null)[] } | null = null;
   /** Set while undo or redo is replaying, so its own writes don't become new steps. */
   #replaying = false;
+  /** How many `untracked` calls are open: their writes are synced but never undo steps. */
+  #untracked = 0;
 
   constructor(private readonly options: SyncedClientOptions<S>) {
     const signals = options.signals ?? plainSignals;
@@ -197,6 +199,19 @@ export class SyncedClient<S extends ModelSpecs> {
       return edit();
     } finally {
       this.commitStep();
+    }
+  }
+
+  /**
+   * Writes that are no undo step of their own: text typed into a field or an editor that keeps its
+   * own undo, which would otherwise fill the history a keystroke at a time.
+   */
+  untracked<R>(edit: () => R): R {
+    this.#untracked += 1;
+    try {
+      return edit();
+    } finally {
+      this.#untracked -= 1;
     }
   }
 
@@ -307,7 +322,7 @@ export class SyncedClient<S extends ModelSpecs> {
 
   /** The one path every write takes: undo step first, then queue, then screen, then server. */
   #apply(intent: Intent) {
-    if (!this.#replaying) {
+    if (!this.#replaying && this.#untracked === 0) {
       const inverse = this.#collections[intent.model].invert(intent);
       if (this.#step) {
         this.#step.forward.push(intent);

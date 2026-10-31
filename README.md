@@ -82,6 +82,13 @@ client.undo();
 client.redo();
 ```
 
+Text typed into a field or an editor that keeps its own undo goes through `untracked`, so the
+history holds the edits a person would undo one at a time, not every keystroke:
+
+```ts
+client.untracked(() => notes.update(id, { body }));
+```
+
 ### Actions
 
 Not every write is a field changing. An action is a write whose meaning belongs to the server —
