@@ -227,9 +227,18 @@ export class SyncedCollection<T extends Identified, A = ActionMap<T>> {
     this.#ready.value = true;
   }
 
-  /** Recomputed by the client whenever the confirmed records or the pending queue move. */
+  /**
+   * Recomputed by the client whenever the confirmed records or the pending queue move. What did
+   * not change keeps its identity — a record, any value inside it, the list itself — so a screen
+   * only redraws what a write or a response actually changed: the server acknowledging an edit,
+   * or another record moving, never hands a screen a fresh copy of what it is already showing.
+   */
   refresh() {
-    this.#view.value = this.#project();
+    const before = this.#view.value;
+    const previous = new Map(before.map((record) => [record.id, record]));
+    const next = this.#project().map((record) => share<T>(previous.get(record.id) ?? record, record));
+    if (next.length === before.length && next.every((record, i) => record === before[i])) return;
+    this.#view.value = next;
   }
 
   snapshot(): CollectionSnapshot<T> {
@@ -287,4 +296,28 @@ export class SyncedCollection<T extends Identified, A = ActionMap<T>> {
   get #actions(): ActionMap<T> {
     return (this.spec.actions ?? {}) as ActionMap<T>;
   }
+}
+
+/**
+ * `next`, with every part of it that equals the same part of `prev` replaced by `prev`'s: `prev`
+ * itself when nothing differs. Plain data only — what records are made of.
+ */
+function share<T>(prev: T, next: T): T {
+  if (Object.is(prev, next)) return prev;
+  if (typeof prev !== "object" || typeof next !== "object" || prev === null || next === null) return next;
+  if (Array.isArray(prev) !== Array.isArray(next)) return next;
+  if (Array.isArray(prev) && Array.isArray(next)) {
+    const out = next.map((item, i) => share(prev[i], item));
+    return (out.length === prev.length && out.every((item, i) => item === prev[i]) ? prev : out) as T;
+  }
+  if (Object.getPrototypeOf(prev) !== Object.prototype || Object.getPrototypeOf(next) !== Object.prototype) return next;
+  const a = prev as Record<string, unknown>;
+  const b = next as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  let same = Object.keys(a).length === Object.keys(b).length;
+  for (const key of Object.keys(b)) {
+    out[key] = share(a[key], b[key]);
+    if (out[key] !== a[key] || !(key in a)) same = false;
+  }
+  return (same ? prev : out) as T;
 }

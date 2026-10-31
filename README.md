@@ -27,6 +27,9 @@ every time either half moves. Two things follow, and they're the reason this exi
   arriving mid-keystroke doesn't need a `dirty` flag to guard it.
 - **A rejection needs no rollback.** The write stops being replayed, and the row is server truth
   again on the next frame.
+- **Nothing unchanged is replaced.** A record, every value inside it, and the list keep their
+  identity across a recompute unless their content changed, so the server acknowledging an edit
+  never hands a screen a fresh copy of what it already shows (and never resets an input bound to it).
 
 Writes carry an id the client makes up, so a retry after a dropped connection is free — the server
 recognises the id and doesn't send the email, or make the calendar event, twice. That id is spent
