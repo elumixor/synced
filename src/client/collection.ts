@@ -300,20 +300,15 @@ export class SyncedCollection<T extends Identified, A = ActionMap<T>> {
 
 /**
  * `next`, with every part of it that equals the same part of `prev` replaced by `prev`'s: `prev`
- * itself when nothing differs. Plain data only — what records are made of.
+ * itself when nothing differs. Plain data only (objects, arrays, primitives): what records are made of.
  */
 function share<T>(prev: T, next: T): T {
   if (Object.is(prev, next)) return prev;
   if (typeof prev !== "object" || typeof next !== "object" || prev === null || next === null) return next;
   if (Array.isArray(prev) !== Array.isArray(next)) return next;
-  if (Array.isArray(prev) && Array.isArray(next)) {
-    const out = next.map((item, i) => share(prev[i], item));
-    return (out.length === prev.length && out.every((item, i) => item === prev[i]) ? prev : out) as T;
-  }
-  if (Object.getPrototypeOf(prev) !== Object.prototype || Object.getPrototypeOf(next) !== Object.prototype) return next;
   const a = prev as Record<string, unknown>;
   const b = next as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
+  const out: Record<string, unknown> = Array.isArray(next) ? ([] as unknown as Record<string, unknown>) : {};
   let same = Object.keys(a).length === Object.keys(b).length;
   for (const key of Object.keys(b)) {
     out[key] = share(a[key], b[key]);
